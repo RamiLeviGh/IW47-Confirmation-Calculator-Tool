@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>IW47 Analyzer - LEGEND, OUTLABELS, DETAIL MODAL, תיקון ערכים שליליים</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-piechart-outlabels@2.1.1/dist/chartjs-plugin-piechart-outlabels.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; direction: ltr; }
+    table, th, td { border: 1px solid #ccc; border-collapse: collapse; padding: 5px; }
+    th { background: #eee; cursor: pointer; user-select: none; }
+    .highlight { background: #ffb3b3; }
+    .notif-green { background: #5ae86b !important; font-weight: bold; cursor: pointer; }
+    .notif-link { cursor: pointer; text-decoration: underline; }
+    .filter-bar { margin: 10px 0; }
+    label { margin-right: 10px; }
+    select, input[type="text"] { min-width: 120px; }
+    .checkbox-bar { margin: 10px 0; }
+    .export-bar { margin: 10px 0; }
+    .modal-bg {
+      display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.3); z-index: 9999; align-items: center; justify-content: center;
+    }
+    .modal-content {
+      background: #fff; border-radius: 8px; padding: 20px; min-width: 400px; max-width: 95vw;
+      max-height: 85vh; overflow: auto; box-shadow: 0 2px 10px #0005;
+      position: relative;
+    }
+    .modal-content h3 { margin-top: 0; }
+    .modal-close {
+      position: absolute; top: 10px; right: 20px; font-size: 22px; color: #888; cursor: pointer;
+    }
+    .modal-content table {
+      border-collapse: collapse;
+      font-size: 13px;
+      min-width: 700px;
+      max-width: 1200px;
+      width: fit-content;
+    }
+    .modal-content th, .modal-content td {
+      border: 1px solid #ccc;
+      padding: 3px 7px;
+      max-width: 160px;
+      white-space: pre-line;
+      word-break: break-word;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .modal-content th {
+      background: #f5f5f5;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #modal-details { overflow-x: auto; }
+    .modal-export-bar { margin-bottom: 10px; text-align: left; }
+    .asc:after { content: " ▲"; }
+    .desc:after { content: " ▼"; }
+    .dashboard-flex {
+      display: flex; flex-direction: row;
+      gap: 38px; margin: 40px 0 11px 0;
+      flex-wrap: wrap; justify-content: center; align-items: flex-start;
+    }
+    .dashboard-flex > .dashboard-col {
+      min-width: 390px; max-width: 480px;
+      background: #f8fafb;
+      border: 1.5px solid #b3c2cc;
+      border-radius: 13px; padding: 15px 17px 21px 17px;
+      box-shadow: 1px 2px 9px #8fa8cc19; margin-bottom: 18px;
+      display: flex; flex-direction: column; align-items: center; position: relative;
+    }
+    #dashboard-calc { font-size: 19px; color: #1c5; text-align: center; margin-bottom:18px;}
+    .pieTitle { text-align: center; font-size: 22px; font-weight: bold; margin: 14px 0 12px 0;}
+    .chart-legend-scroll {
+      max-height: 245px; overflow-y: auto; direction: ltr;
+      border: 1.5px solid #ccc; border-radius: 7px;
+      background: #fafcff; margin: 14px 0 0 0; width: 95%;
+      padding: 6px 5px 6px 3px; font-size: 16px;
+    }
+    .chart-legend-scroll ul { list-style: none; margin: 0; padding: 0; }
+    .chart-legend-scroll li {
+      display: flex; align-items: center; margin-bottom: 2px; font-size: 16px; gap: 8px;
+    }
+    .chart-legend-scroll .legend-dot {
+      display: inline-block; width:18px;height:18px; border-radius:50%; margin-left: 6px; margin-right: 0;
+    }
+    @media (max-width: 1100px) {
+      .dashboard-flex { flex-direction: column; gap: 0; }
+      .dashboard-flex > .dashboard-col { max-width: 100%; min-width: 70vw;}
+    }
+  </style>
+</head>
+<body>
+  <h2>IW47 Calls Analyzer</h2>
+  <input type="file" id="input-excel" accept=".xlsx,.xls" />
+  <div class="filter-bar">
+    <label>Notification Number:
+      <input type="text" id="filter-notification" placeholder="Enter notification...">
+    </label>
+    <label>Employee:
+      <select id="filter-employee"><option value="">All</option></select>
+    </label>
+    <label>Equipment:
+      <select id="filter-equipment"><option value="">All</option></select>
+    </label>
+    <label>From date: <input type="date" id="filter-from" /></label>
+    <label>To date: <input type="date" id="filter-to" /></label>
+    <button onclick="applyFilters()">Filter</button>
+    <button onclick="resetFilters()">Reset</button>
+  </div>
+  <div class="checkbox-bar">
+    <label><input type="checkbox" id="filter-multieng"> Show only multi-engineer calls</label>
+    <label><input type="checkbox" id="filter-outlier"> Show only outlier calls</label>
+    <label><input type="checkbox" id="filter-night"> Show only night activity (19:00-05:00)</label>
+    <label><input type="checkbox" id="filter-weekend"> Show only weekend activity (Fri 06:00 - Sun 06:00)</label>
+  </div>
+  <div class="export-bar">
+    <button onclick="exportToExcel()">Export to Excel</button>
+    <button onclick="exportTableToPDF()">Export to PDF</button>
+    <button onclick="exportProductivityReport()">Productivity Report (Excel)</button>
+  </div>
+
+  <div id="output"></div>
+  <div id="dashboard" class="dashboard-flex" style="display:none;">
+    <div class="dashboard-col">
+      <div class="pieTitle">חלוקת שעות לפי עובד</div>
+      <canvas id="pieWorker" height="360" width="430"></canvas>
+      <div class="chart-legend-scroll" id="legendWorker"></div>
+    </div>
+    <div class="dashboard-col">
+      <div class="pieTitle">חלוקת שעות לפי ציוד</div>
+      <canvas id="pieEquipment" height="360" width="430"></canvas>
+      <div class="chart-legend-scroll" id="legendEquipment"></div>
+    </div>
+    <div class="dashboard-col" style="min-width:285px;">
+      <div id="dashboard-calc"></div>
+    </div>
+  </div>
+  <div id="modal-bg" class="modal-bg" onclick="closeModal(event)">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <span class="modal-close" onclick="closeModal(event)">&times;</span>
+      <div id="modal-details"></div>
+    </div>
+  </div>
+<script>
+const { jsPDF } = window.jspdf;
+let callData = [], filteredData = [], allEmployees = [], allEquipments = [];
+let multiEngineerNotifications = new Set();
+let allRawRows = [], lastModalRows = [], manualConfirmationHoursTotal = 0;
+let currentSortCol = null, currentSortDir = 1;
+const EXCLUDE_FIELDS = ['System Status'];
+const HOURS_FIELDS = ['Actual work', 'Total Hours', 'Sum Hours', 'שעות עבודה'];
+
+// *** כאן תיקון: קבל כל ערך חוקי (גם שלילי) ***
+function parseHours(val) {
+  if (val === undefined || val === null) return 0;
+  if (typeof val === 'string') {
+    val = val.replace(',', '.').replace(/[^\d\.\-]/g, '').trim();
+  }
+  let num = parseFloat(val);
+  return (!isNaN(num)) ? num : 0;
+}
+
+function getEmployeeName(row) {
+  const fields = ['Name of employee', 'Employee', 'Technician', 'שם עובד'];
+  for (let key of fields)
+    if (row[key] && row[key].toString().trim() !== '') return row[key].toString().trim();
+  return 'Manual Confirmation';
+}
+function formatDate(val) {
+  if (!val) return '';
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0,10);
+  if (typeof val === 'string' && /^\d{2}\/\d{2}\/\d{4}/.test(val)) {
+    const p = val.split('/');
+    return `${p[2]}-${p[1]}-${p[0]}`;
+  }
+  if (typeof val === 'number') {
+    const d = XLSX.SSF.parse_date_code(val);
+    return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+  }
+  return val;
+}
+function formatTime(val) {
+  if (!val && val !== 0) return '';
+  if (typeof val === 'number' && val >= 0 && val < 1) {
+    let totalMinutes = Math.round(val * 24 * 60);
+    let hours = Math.floor(totalMinutes / 60);
+    let minutes = totalMinutes % 60;
+    return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+  }
+  let str = val.toString().trim();
+  if (/^\d{1,2}:\d{2}/.test(str)) return str.slice(0,5);
+  if (/^\d{4}$/.test(str)) return str.slice(0,2)+':'+str.slice(2,4);
+  if (/^\d{1,2}$/.test(str)) return str.padStart(2,'0')+':00';
+  if (!isNaN(str) && str.indexOf('.') > -1) {
+    let num = parseFloat(str);
+    if (num >= 0 && num < 1) {
+      let totalMinutes = Math.round(num * 24 * 60);
+      let hours = Math.floor(totalMinutes / 60);
+      let minutes = totalMinutes % 60;
+      return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0');
+    }
+  }
+  return str;
+}
+function isNightActivity(startTime, endTime) {
+  let sh = getHour(startTime), eh = getHour(endTime);
+  if (sh === null && eh === null) return false;
+  let night = (h) => (h !== null && (h >= 19 || h < 5));
+  return night(sh) || night(eh);
+}
+function isWeekendActivity(startDate, startTime, endDate, endTime) {
+  if (!startDate || !startTime || !endDate || !endTime) return false;
+  let start = new Date(startDate + 'T' + startTime);
+  let end = new Date(endDate + 'T' + endTime);
+  let fri = new Date(start);
+  while (fri.getUTCDay() !== 5) fri.setUTCDate(fri.getUTCDate() + 1);
+  fri.setUTCHours(6,0,0,0);
+  let sun = new Date(fri);
+  sun.setUTCDate(fri.getUTCDate() + 2);
+  sun.setUTCHours(6,0,0,0);
+  return (start <= sun && end >= fri);
+}
+function getHour(str) {
+  if (!str) return null;
+  let parts = str.split(':');
+  return parseInt(parts[0], 10);
+}
+document.getElementById('input-excel').addEventListener('change', function(e) {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const data = new Uint8Array(e.target.result);
+    const workbook = XLSX.read(data, {type: 'array'});
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const json = XLSX.utils.sheet_to_json(worksheet);
+    allRawRows = json; manualConfirmationHoursTotal = 0;
+    const perCallPerEngineer = {}, engineersPerCall = {};
+    allEmployees = new Set(); allEquipments = new Set();
+
+    json.forEach(row => {
+      const notification = row['Notification'] || row['Order'] || row['Call'] || '';
+      const name = getEmployeeName(row);
+      const equipment = row['Equipment'] || '';
+      const startDate = formatDate(row['Actual Execution Start Date'] || row['Posting Date'] || row['Start Date'] || '');
+      const startTime = formatTime(row['Actual Execution Start Time'] || row['Start Time'] || '');
+      const endDate = formatDate(row['Actual Execution End Date'] || row['Posting Date'] || row['End Date'] || '');
+      const endTime = formatTime(row['Actual Execution End Time'] || row['End Time'] || '');
+
+      let hours = 0;
+      for(let field of HOURS_FIELDS) {
+        hours = parseHours(row[field]);
+        if (hours !== 0) break;
+      }
+      if ((hours === 0 || isNaN(hours)) && startDate && startTime && endDate && endTime) {
+        try {
+          const start = new Date(`${startDate}T${startTime}`);
+          let end = new Date(`${endDate}T${endTime}`);
+          if (end < start) end.setDate(end.getDate() + 1);
+          let diff = (end - start) / (1000*60*60);
+          if (isFinite(diff) && Math.abs(diff) < 72) hours = diff;
+        } catch {}
+      }
+      if (!notification) return;
+
+      if(name === "Manual Confirmation") manualConfirmationHoursTotal += hours ? hours : 0;
+
+      const key = notification + '||' + name;
+      if (!perCallPerEngineer[key]) {
+        perCallPerEngineer[key] = {
+          'Notification Number': notification,
+          'Equipment': equipment,
+          'Employee': name,
+          'Start Date': startDate,
+          'Start Time': startTime,
+          'End Date': endDate,
+          'End Time': endTime,
+          'Total Hours': 0,
+          'Outlier': '',
+          'NightActivity': '',
+          'WeekendActivity': ''
+        };
+      }
+      perCallPerEngineer[key]['Total Hours'] += hours ? hours : 0;
+      if (equipment) perCallPerEngineer[key]['Equipment'] = equipment;
+      if (startDate && (!perCallPerEngineer[key]['Start Date'] || startDate < perCallPerEngineer[key]['Start Date'])) perCallPerEngineer[key]['Start Date'] = startDate;
+      if (startTime && (!perCallPerEngineer[key]['Start Time'] || startTime < perCallPerEngineer[key]['Start Time'])) perCallPerEngineer[key]['Start Time'] = startTime;
+      if (endDate && (!perCallPerEngineer[key]['End Date'] || endDate > perCallPerEngineer[key]['End Date'])) perCallPerEngineer[key]['End Date'] = endDate;
+      if (endTime && (!perCallPerEngineer[key]['End Time'] || endTime > perCallPerEngineer[key]['End Time'])) perCallPerEngineer[key]['End Time'] = endTime;
+      if (name && name !== "Manual Confirmation") allEmployees.add(name);
+      if (equipment) allEquipments.add(equipment);
+      if (!engineersPerCall[notification]) engineersPerCall[notification] = new Set();
+      engineersPerCall[notification].add(name);
+
+      if (isNightActivity(startTime, endTime)) perCallPerEngineer[key]['NightActivity'] = 'Yes';
+      if (isWeekendActivity(startDate, startTime, endDate, endTime)) perCallPerEngineer[key]['WeekendActivity'] = 'Yes';
+    });
+
+    multiEngineerNotifications = new Set(
+      Object.entries(engineersPerCall)
+        .filter(([notif, engSet]) => engSet.size > 1)
+        .map(([notif]) => notif)
+    );
+    callData = Object.values(perCallPerEngineer).map(row => {
+      row['Total Hours'] = row['Total Hours'].toFixed(2);
+      row['Outlier'] = Math.abs(parseFloat(row['Total Hours'])) > 15 ? 'Yes' : '';
+      row['MultiEngineer'] = multiEngineerNotifications.has(row['Notification Number']) ? 'Yes' : '';
+      return row;
+    });
+
+    filteredData = callData;
+    currentSortCol = null;
+    populateEmployeeDropdown();
+    populateEquipmentDropdown();
+    renderTable();
+  };
+  reader.readAsArrayBuffer(file);
+});
+function populateEmployeeDropdown() {
+  const select = document.getElementById('filter-employee');
+  const current = select.value;
+  select.innerHTML = '<option value="">All</option>';
+  Array.from(allEmployees).sort().forEach(name => {
+    const selected = (name === current) ? 'selected' : '';
+    select.innerHTML += `<option value="${name}" ${selected}>${name}</option>`;
+  });
+}
+function populateEquipmentDropdown() {
+  const select = document.getElementById('filter-equipment');
+  const current = select.value;
+  select.innerHTML = '<option value="">All</option>';
+  Array.from(allEquipments).sort().forEach(equip => {
+    const selected = (equip === current) ? 'selected' : '';
+    select.innerHTML += `<option value="${equip}" ${selected}>${equip}</option>`;
+  });
+}
+function getStatLine() {
+  return (
+    `Total rows: ${filteredData.length} | Outlier rows (>15 hours): ${filteredData.filter(r=>r['Outlier']==='Yes').length} | ` +
+    `Multi-engineer calls: ${filteredData.filter(r=>r['MultiEngineer']==='Yes').length} | Night activity: ${filteredData.filter(r=>r['NightActivity']==='Yes').length} | ` +
+    `Weekend activity: ${filteredData.filter(r=>r['WeekendActivity']==='Yes').length}`
+  );
+}
+function getHourSummary() {
+  let total = filteredData.reduce((sum,row) => sum + parseFloat(row['Total Hours']||0), 0);
+  return `Total Hours: ${total.toFixed(2)}` +
+    (manualConfirmationHoursTotal !== 0 ? ` (Manual Confirmation: ${manualConfirmationHoursTotal.toFixed(2)})` : '');
+}
+function getDashboardStats() {
+  let notifications = new Set(filteredData.map(r => r['Notification Number']));
+  let avgHoursPerNotif = notifications.size > 0
+    ? filteredData.reduce((sum,r)=>sum+parseFloat(r['Total Hours']||0),0)/notifications.size
+    : 0;
+  let empRows = filteredData.filter(r=>r['Employee'] && r['Employee']!=='Manual Confirmation');
+  let employees = new Set(empRows.map(r=>r['Employee']));
+  let totalEmpHours = empRows.reduce((sum,r)=>sum+parseFloat(r['Total Hours']||0),0);
+  let avgHoursPerEmp = (employees.size>0) ? totalEmpHours/employees.size : 0;
+
+  let html = `
+    <b>ממוצע שעות לקריאה:</b> ${avgHoursPerNotif.toFixed(2)}
+    &nbsp;|&nbsp;
+    <b>ממוצע שעות לעובד:</b> ${avgHoursPerEmp.toFixed(2)}
+  `;
+  document.getElementById('dashboard-calc').innerHTML = html;
+}
+function renderTable() {
+  if (!filteredData.length) {
+    document.getElementById('dashboard').style.display='none';
+    document.getElementById('output').innerHTML = '<div>No data to display</div>';
+    return;
+  }
+  document.getElementById('dashboard').style.display='flex';
+  getDashboardStats();
+  renderPieCharts();
+
+  const exclude = EXCLUDE_FIELDS;
+  let html = `<div style="margin-bottom:7px"><b>${getHourSummary()}</b></div>`;
+  let columns = Object.keys(filteredData[0])
+    .filter(h => h !== 'MultiEngineer' && h !== 'NightActivity' && h !== 'WeekendActivity' && !exclude.includes(h));
+  html += '<table><tr>';
+  columns.forEach(h => {
+    let clz = '';
+    if (currentSortCol === h) clz = (currentSortDir === 1 ? 'asc' : 'desc');
+    html += `<th class="${clz}" onclick="sortByColumn('${h.replace(/'/g,"\\'")}')">${h}</th>`;
+  });
+  html += '</tr>';
+  filteredData.forEach(row => {
+    let rowClass = '';
+    if (row['Outlier'] === 'Yes') rowClass = 'highlight';
+    html += `<tr class="${rowClass}">`;
+    columns.forEach(k => {
+      let v = row[k];
+      if (k === 'Notification Number') {
+        let cellClass = '';
+        if (row['MultiEngineer'] === 'Yes') cellClass = 'notif-green';
+        html += `<td class="${cellClass} notif-link" ondblclick="showCallDetails('${v.replace(/'/g,"&#39;")}')">${v}</td>`;
+      } else {
+        html += `<td>${v}</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</table>';
+  html = `<div>${getStatLine()}</div>` + html;
+  document.getElementById('output').innerHTML = html;
+}
+function renderLegend(chart, legendId) {
+  let html = '<ul>';
+  chart.data.labels.forEach((label, i) => {
+    let color = chart.data.datasets[0].backgroundColor[i];
+    html += `<li>
+      <span class="legend-dot" style="background:${color}"></span>
+      <span>${label}</span>
+    </li>`;
+  });
+  html += '</ul>';
+  document.getElementById(legendId).innerHTML = html;
+}
+function renderPieCharts() {
+  // --- Pie by Worker
+  let workerAgg = {};
+  filteredData.forEach(r => {
+    let k = (r['Employee'] && r['Employee']!=="") ? r['Employee'] : 'Manual Confirmation';
+    if (!workerAgg[k]) workerAgg[k]=0;
+    workerAgg[k] += parseFloat(r['Total Hours']||0);
+  });
+  let workerLabels=Object.keys(workerAgg);
+  let workerVals=workerLabels.map(k=>workerAgg[k]);
+  if(window.workerChart) window.workerChart.destroy();
+  if(workerLabels.length > 0) {
+    window.workerChart = new Chart(document.getElementById('pieWorker'), {
+      type: 'pie',
+      data: {
+        labels: workerLabels,
+        datasets: [{
+          data: workerVals,
+          backgroundColor: workerLabels.map((_,i)=>`hsl(${60+(i*43)%330},78%,65%)`)
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{
+          legend:{display:false},
+          outlabels: {
+            text: '%l: %v שעות (%p)',
+            color: '#1d1d1d',
+            stretch: 35,
+            font: { minSize: 13, maxSize: 18, resizable:true, weight:'bold' },
+            lineWidth: 2,
+            borderRadius: 4,
+            backgroundColor: null,
+            minPercentage: 5
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let value = context.parsed;
+                let sum = context.dataset.data.reduce((a,b)=>a+b,0);
+                let pct = (sum?(100*value/sum):0).toFixed(1);
+                return context.label + ': ' + value.toFixed(2) + ' שעות ('+pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+    renderLegend(window.workerChart, "legendWorker");
+  } else {
+    document.getElementById('pieWorker').getContext('2d').clearRect(0,0,500,500);
+    document.getElementById('legendWorker').innerHTML='';
+  }
+  // --- Pie by Equipment
+  let equipAgg = {};
+  filteredData.forEach(r => {
+    let k = (r['Equipment'] && r['Equipment']!=="") ? r['Equipment'] : 'ללא ציוד';
+    if (!equipAgg[k]) equipAgg[k]=0;
+    equipAgg[k] += parseFloat(r['Total Hours']||0);
+  });
+  let equipLabels=Object.keys(equipAgg);
+  let equipVals=equipLabels.map(k=>equipAgg[k]);
+  if(window.equipChart) window.equipChart.destroy();
+  if(equipLabels.length > 0) {
+    window.equipChart = new Chart(document.getElementById('pieEquipment'), {
+      type: 'pie',
+      data: {
+        labels: equipLabels,
+        datasets: [{
+          data: equipVals,
+          backgroundColor: equipLabels.map((_,i)=>`hsl(${280+(i*37)%330},80%,70%)`)
+        }]
+      },
+      options:{
+        responsive:true,
+        plugins:{
+          legend:{display:false},
+          outlabels: {
+            text: '%l: %v שעות (%p)',
+            color: '#1d1d1d',
+            stretch: 35,
+            font: { minSize: 13, maxSize: 18, resizable:true, weight:'bold' },
+            lineWidth: 2,
+            borderRadius: 4,
+            backgroundColor: null,
+            minPercentage: 5
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let value = context.parsed;
+                let sum = context.dataset.data.reduce((a,b)=>a+b,0);
+                let pct = (sum?(100*value/sum):0).toFixed(1);
+                return context.label + ': ' + value.toFixed(2) + ' שעות ('+pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+    renderLegend(window.equipChart, "legendEquipment");
+  } else {
+    document.getElementById('pieEquipment').getContext('2d').clearRect(0,0,500,500);
+    document.getElementById('legendEquipment').innerHTML='';
+  }
+}
+function sortByColumn(col) {
+  if (currentSortCol === col) {
+    currentSortDir = -currentSortDir;
+  } else {
+    currentSortCol = col;
+    currentSortDir = 1;
+  }
+  filteredData.sort((a, b) => {
+    let av = a[col] || '', bv = b[col] || '';
+    if (col.toLowerCase().includes('date') && /^\d{4}-\d{2}-\d{2}/.test(av) && /^\d{4}-\d{2}-\d{2}/.test(bv)) {
+      return currentSortDir * (new Date(av) - new Date(bv));
+    }
+    if (col.toLowerCase().includes('hours') || col.toLowerCase().includes('סך')) {
+      return currentSortDir * (parseFloat(av) - parseFloat(bv));
+    }
+    return currentSortDir * (av.toString().localeCompare(bv.toString(), undefined, {numeric:true, sensitivity:'base'}));
+  });
+  renderTable();
+}
+document.getElementById('filter-multieng').addEventListener('change', applyFilters);
+document.getElementById('filter-outlier').addEventListener('change', applyFilters);
+document.getElementById('filter-night').addEventListener('change', applyFilters);
+document.getElementById('filter-weekend').addEventListener('change', applyFilters);
+
+function applyFilters() {
+  const notification = document.getElementById('filter-notification').value.trim();
+  const name = document.getElementById('filter-employee').value;
+  const equipment = document.getElementById('filter-equipment').value;
+  const from = document.getElementById('filter-from').value;
+  const to = document.getElementById('filter-to').value;
+  const filterMultiEng = document.getElementById('filter-multieng').checked;
+  const filterOutlier = document.getElementById('filter-outlier').checked;
+  const filterNight = document.getElementById('filter-night').checked;
+  const filterWeekend = document.getElementById('filter-weekend').checked;
+
+  filteredData = callData.filter(row => {
+    let ok = true;
+    if (notification) ok = ok && row['Notification Number'].toString().includes(notification);
+    if (name) ok = ok && row['Employee'] === name;
+    if (equipment) ok = ok && row['Equipment'] === equipment;
+    if (from) ok = ok && row['Start Date'] >= from;
+    if (to) ok = ok && row['Start Date'] <= to;
+    if (filterMultiEng) ok = ok && row['MultiEngineer'] === 'Yes';
+    if (filterOutlier) ok = ok && row['Outlier'] === 'Yes';
+    if (filterNight) ok = ok && row['NightActivity'] === 'Yes';
+    if (filterWeekend) ok = ok && row['WeekendActivity'] === 'Yes';
+    return ok;
+  });
+  renderTable();
+}
+function resetFilters() {
+  document.getElementById('filter-notification').value = '';
+  document.getElementById('filter-employee').value = '';
+  document.getElementById('filter-equipment').value = '';
+  document.getElementById('filter-from').value = '';
+  document.getElementById('filter-to').value = '';
+  document.getElementById('filter-multieng').checked = false;
+  document.getElementById('filter-outlier').checked = false;
+  document.getElementById('filter-night').checked = false;
+  document.getElementById('filter-weekend').checked = false;
+  filteredData = callData.slice();
+  renderTable();
+}
+function exportToExcel() {
+  if (!filteredData.length) {
+    alert("No data to export.");
+    return;
+  }
+  const exclude = EXCLUDE_FIELDS.concat(['MultiEngineer', 'NightActivity', 'WeekendActivity', 'Outlier']);
+  let exportRows = filteredData.map(row => {
+    let newRow = {};
+    Object.entries(row).forEach(([k, v]) => {
+      if (!exclude.includes(k)) newRow[k] = v;
+    });
+    return newRow;
+  });
+  let cols = Object.keys(exportRows[0]);
+  let statLine = getStatLine();
+  let hoursLine = getHourSummary();
+  let extraRows = [[statLine], [hoursLine], []];
+  extraRows.push(cols);
+  let dataRows = exportRows.map(row => cols.map(c => row[c]));
+  let allRows = extraRows.concat(dataRows);
+
+  let ws = XLSX.utils.aoa_to_sheet(allRows);
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "IW47 Report");
+  XLSX.writeFile(wb, "IW47_filtered_report.xlsx");
+}
+function exportTableToPDF() {
+  if (!filteredData.length) {
+    alert("No data to export.");
+    return;
+  }
+  const doc = new jsPDF({ orientation: "landscape", format: "a3" });
+  doc.setFontSize(13);
+
+  let statLine = getStatLine();
+  let hoursLine = getHourSummary();
+
+  doc.text(statLine, 10, 15);
+  doc.text(hoursLine, 10, 24);
+
+  const exclude = EXCLUDE_FIELDS.concat(['MultiEngineer', 'NightActivity', 'WeekendActivity', 'Outlier']);
+  let exportRows = filteredData.map(row => {
+    let newRow = {};
+    Object.entries(row).forEach(([k, v]) => {
+      if (!exclude.includes(k)) newRow[k] = v;
+    });
+    return newRow;
+  });
+  let cols = Object.keys(exportRows[0]);
+  let data = exportRows.map(row => cols.map(c => row[c]));
+
+  doc.autoTable({
+    startY: 32,
+    head: [cols],
+    body: data,
+    styles: { fontSize: 8, cellWidth: 'auto', overflow: 'linebreak' },
+    headStyles: { fillColor: [220, 220, 220] },
+    margin: { left: 10, right: 10 },
+    tableWidth: 'auto'
+  });
+  doc.save("IW47_filtered_report.pdf");
+}
+function exportProductivityReport() {
+  if (!allRawRows || !allRawRows.length) {
+    alert("No data loaded.");
+    return;
+  }
+  const exclude = EXCLUDE_FIELDS;
+  let employeesMap = {};
+  allRawRows.forEach(row => {
+    const name = getEmployeeName(row) || 'Manual Confirmation';
+    if (!employeesMap[name]) employeesMap[name] = [];
+    employeesMap[name].push(row);
+  });
+
+  let wb = XLSX.utils.book_new();
+  Object.entries(employeesMap).forEach(([employee, rows]) => {
+    let cols = Object.keys(rows[0]).filter(col => !exclude.includes(col));
+    let exportRows = rows.map(row => {
+      let newRow = {};
+      cols.forEach(col => {
+        let lower = col.toLowerCase();
+        let val = row[col];
+        if (lower.includes("date")) newRow[col] = formatDate(val);
+        else if (lower.includes("time")) newRow[col] = formatTime(val);
+        else if (HOURS_FIELDS.map(h=>h.toLowerCase()).includes(lower)) newRow[col] = parseHours(val).toFixed(2);
+        else newRow[col] = val;
+      });
+      return newRow;
+    });
+
+    let hourCol = cols.find(c =>
+      HOURS_FIELDS.map(h => h.toLowerCase()).includes(c.toLowerCase())
+    );
+    let total = 0;
+    if (hourCol) {
+      total = exportRows.reduce((sum, row) => sum + (parseFloat(row[hourCol]) || 0), 0);
+      let totalRow = {};
+      cols.forEach(col => totalRow[col] = '');
+      totalRow[hourCol] = 'Total: ' + total.toFixed(2);
+      exportRows.push(totalRow);
+    }
+    let ws = XLSX.utils.json_to_sheet(exportRows);
+
+    if (hourCol) {
+      let lastRowIndex = exportRows.length;
+      let colIndex = cols.indexOf(hourCol);
+      function colToLetter(col) {
+        let letter = '';
+        while (col >= 0) {
+          letter = String.fromCharCode((col % 26) + 65) + letter;
+          col = Math.floor(col / 26) - 1;
+        }
+        return letter;
+      }
+      let cellAddress = colToLetter(colIndex) + (lastRowIndex + 1);
+      if (!ws[cellAddress]) ws[cellAddress] = { t: 's', v: exportRows[exportRows.length -1][hourCol] };
+      ws[cellAddress].s = {
+        fill: { patternType: "solid", fgColor: { rgb: "FFFF00" } },
+        font: { bold: true }
+      };
+    }
+    let safeName = employee.toString().replace(/[\[\]\*\/\\\?\:]/g,'').substring(0,31) || 'Manual Confirmation';
+    XLSX.utils.book_append_sheet(wb, ws, safeName);
+  });
+  XLSX.writeFile(wb, "IW47_productivity_report.xlsx");
+}
+
+// ----------- MODAL לחיצה על מספר קריאה -----------
+function showCallDetails(notificationNumber) {
+  let rows = allRawRows.filter(row =>
+    (row['Notification'] || row['Order'] || row['Call'] || '') == notificationNumber
+  );
+  if (!rows.length) return;
+  lastModalRows = rows;
+  let exclude = EXCLUDE_FIELDS;
+  let cols = Object.keys(rows[0]).filter(col => !exclude.includes(col));
+  let html = `<h3>Details for Notification ${notificationNumber}</h3>`;
+  html += `<div class="modal-export-bar">
+    <button onclick="exportModalToExcel('${notificationNumber}')">Export details to Excel</button>
+    <button onclick="exportModalToPDF('${notificationNumber}')">Export details to PDF</button>
+  </div>`;
+  html += `<div style="overflow-x:auto;"><table><tr>`;
+  cols.forEach(col => html += `<th>${col}</th>`);
+  html += `</tr>`;
+  rows.forEach(row => {
+    html += `<tr>`;
+    cols.forEach(col => {
+      let val = row[col];
+      let lower = col.toLowerCase();
+      if (lower.includes("date")) {
+        html += `<td>${formatDate(val)}</td>`;
+      } else if (lower.includes("time")) {
+        html += `<td>${formatTime(val)}</td>`;
+      } else {
+        html += `<td>${val}</td>`;
+      }
+    });
+    html += `</tr>`;
+  });
+  html += `</table></div>`;
+  document.getElementById('modal-details').innerHTML = html;
+  document.getElementById('modal-bg').style.display = 'flex';
+}
+function closeModal(event) {
+  document.getElementById('modal-bg').style.display = 'none';
+}
+function exportModalToExcel(notificationNumber) {
+  if (!lastModalRows || !lastModalRows.length) {
+    alert("No details to export.");
+    return;
+  }
+  let exclude = EXCLUDE_FIELDS;
+  let cols = Object.keys(lastModalRows[0]).filter(col => !exclude.includes(col));
+  let exportRows = lastModalRows.map(row => {
+    let newRow = {};
+    cols.forEach(col => {
+      let lower = col.toLowerCase();
+      let val = row[col];
+      if (lower.includes("date")) newRow[col] = formatDate(val);
+      else if (lower.includes("time")) newRow[col] = formatTime(val);
+      else newRow[col] = val;
+    });
+    return newRow;
+  });
+
+  let ws = XLSX.utils.json_to_sheet(exportRows);
+  let wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Notification " + notificationNumber);
+  XLSX.writeFile(wb, `IW47_notification_${notificationNumber}.xlsx`);
+}
+function exportModalToPDF(notificationNumber) {
+  if (!lastModalRows || !lastModalRows.length) {
+    alert("No details to export.");
+    return;
+  }
+  let exclude = EXCLUDE_FIELDS;
+  let cols = Object.keys(lastModalRows[0]).filter(col => !exclude.includes(col));
+  let data = lastModalRows.map(row => {
+    return cols.map(col => {
+      let val = row[col];
+      let lower = col.toLowerCase();
+      if (lower.includes("date")) return formatDate(val);
+      else if (lower.includes("time")) return formatTime(val);
+      else return val;
+    });
+  });
+
+  const doc = new jsPDF({ orientation: "landscape", format: "a3" });
+  doc.setFontSize(12);
+  doc.text(`Details for Notification ${notificationNumber}`, 14, 15);
+  doc.autoTable({
+    startY: 20,
+    head: [cols],
+    body: data,
+    styles: { fontSize: 8, cellWidth: 'auto', overflow: 'linebreak' },
+    headStyles: { fillColor: [220, 220, 220] },
+    margin: { left: 10, right: 10 },
+    tableWidth: 'auto'
+  });
+  doc.save(`IW47_notification_${notificationNumber}.pdf`);
+}
+</script>
+</body>
+</html>
